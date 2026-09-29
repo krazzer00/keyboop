@@ -44,6 +44,37 @@ pub fn message_box(text: &str) {
     }
 }
 
+/// Версия Windows для диагностики (номер сборки из реестра).
+pub fn os_version() -> String {
+    unsafe {
+        let key = wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+        let read = |name: &str| -> String {
+            let val = wide(name);
+            let mut buf = [0u16; 256];
+            let mut size = (buf.len() * 2) as u32;
+            if RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                key.as_ptr(),
+                val.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr() as *mut _,
+                &mut size,
+            ) != ERROR_SUCCESS
+            {
+                return String::new();
+            }
+            String::from_utf16_lossy(&buf[..(size as usize / 2).saturating_sub(1)])
+        };
+        format!(
+            "{} build {} ({})",
+            read("ProductName"),
+            read("CurrentBuild"),
+            read("DisplayVersion")
+        )
+    }
+}
+
 pub fn system_is_russian() -> bool {
     let lang = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
     lang & 0x3FF == 0x19

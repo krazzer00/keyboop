@@ -6,6 +6,7 @@
 //! Подробные истории «почему так» живут в комментариях Swift-файлов; здесь оставлены только
 //! ссылки на них и то, что отличается на Windows.
 
+pub mod ambiguous;
 pub mod buffer;
 pub mod detector;
 pub mod engine;

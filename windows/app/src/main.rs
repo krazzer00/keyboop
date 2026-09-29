@@ -16,10 +16,28 @@ mod storage;
 mod synth;
 
 #[cfg(windows)]
+mod ui;
+#[cfg(windows)]
 mod win;
 
 #[cfg(windows)]
+fn win_system_is_russian() -> bool {
+    win::sys::system_is_russian()
+}
+
+#[cfg(windows)]
 fn main() {
+    // `keyboop.exe --ui <окно> [--section <раздел>]` — окно настроек/истории/… отдельным процессом.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--ui") {
+        let kind = args.get(i + 1).cloned().unwrap_or_default();
+        let section = args
+            .iter()
+            .position(|a| a == "--section")
+            .and_then(|j| args.get(j + 1).cloned());
+        ui::run(&kind, section);
+        return;
+    }
     win::run();
 }
 

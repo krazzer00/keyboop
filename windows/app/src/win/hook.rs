@@ -102,6 +102,8 @@ pub const ACT_PASTE_DICTATION: u8 = 5;
 pub const ACT_PLAIN_PASTE: u8 = 6;
 pub const ACT_SNIPPET_PICK: u8 = 7;
 pub const ACT_TRANSLATE: u8 = 8;
+/// Окно настроек записывает сочетание: наши хоткеи не перехватываем.
+pub static HOTKEYS_SUSPENDED: AtomicBool = AtomicBool::new(false);
 /// Клавиша диктовки, которую сейчас держат (0 — не держат).
 static VOICE_HOLD: AtomicU32 = AtomicU32::new(0);
 
@@ -351,7 +353,11 @@ fn handle_key(kb: &KBDLLHOOKSTRUCT, up: bool) -> bool {
             ks.down_at[i] = kb.time;
         }
     }
-    let hk = app().hotkeys.lock().unwrap().clone();
+    let hk = if HOTKEYS_SUSPENDED.load(Ordering::Relaxed) {
+        super::Hotkeys::default()
+    } else {
+        app().hotkeys.lock().unwrap().clone()
+    };
 
     // ── Диктовка: удержание хоткея, Esc, чужое сочетание ────────────────────────────────
     let held = VOICE_HOLD.load(Ordering::Relaxed);

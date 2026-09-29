@@ -9,18 +9,18 @@
 //! Движок (`keyboop_core::Engine`) общий и живёт под мьютексом.
 
 mod clipboard;
-mod history_store;
+pub(crate) mod history_store;
 mod hook;
 mod hud;
 mod input;
 mod layouts;
 mod overlay;
 mod picker;
-mod sys;
+pub(crate) mod sys;
 mod translate;
 mod tray;
 pub mod ui;
-mod voice;
+pub(crate) mod voice;
 
 use crate::storage::{State, Store};
 use crate::{hotkey, l10n, storage};
@@ -41,6 +41,8 @@ pub enum Cmd {
     ReadSelection(hook::SelectionKind),
     /// Вставка без форматирования.
     PlainPaste,
+    /// Проверить обновления сейчас.
+    CheckUpdates,
     /// Сохранить всё, что поменялось.
     Persist,
     Quit,
@@ -413,6 +415,7 @@ fn worker(rx: Receiver<Cmd>) {
                 hook::post_selection_ready();
             }
             Ok(Cmd::PlainPaste) => clipboard::plain_paste(),
+            Ok(Cmd::CheckUpdates) => app.log("обновления: проверка ещё не перенесена"),
             Ok(Cmd::Persist) | Err(RecvTimeoutError::Timeout) => app.persist(),
         }
     }

@@ -14,6 +14,10 @@ pub fn set_language(language: &str, system_is_russian: bool) {
     RU.store(ru, Ordering::Relaxed);
 }
 
+pub fn is_russian() -> bool {
+    RU.load(Ordering::Relaxed)
+}
+
 pub fn t(key: &str) -> &'static str {
     let ru = RU.load(Ordering::Relaxed);
     let (r, e) = match key {
@@ -100,6 +104,8 @@ pub fn t(key: &str) -> &'static str {
         "voice" => ("Голосовой набор", "Voice typing"),
         "open.ui" => ("Настройки…", "Settings…"),
         "open.history" => ("История…", "History…"),
+        "open.feedback" => ("Написать разработчику…", "Send feedback…"),
+        "files" => ("Файлы настроек", "Settings files"),
         _ => ("?", "?"),
     };
     if ru {
