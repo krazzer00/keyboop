@@ -22,7 +22,10 @@ pub fn font() -> Option<&'static FontVec> {
                 }
             }
         }
-        None
+        // Системных шрифтов нет (урезанная сборка Windows, Wine): берём встроенный шрифт egui.
+        let defs = eframe::egui::FontDefinitions::default();
+        let data = defs.font_data.get("Ubuntu-Light")?;
+        FontVec::try_from_vec(data.font.to_vec()).ok()
     })
     .as_ref()
 }

@@ -521,6 +521,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_TIMER => {
             static TICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             refresh(false);
+            super::clipboard::watch_tick();
             if TICKS.fetch_add(1, Ordering::Relaxed) % 5 == 4 {
                 app().reload_if_changed(false);
             }

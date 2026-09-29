@@ -67,6 +67,16 @@ pub fn t(key: &str) -> &'static str {
             "Исключения (exceptions.json)…",
             "Exceptions (exceptions.json)…",
         ),
+        "snip.pickTip" => (
+            "цифра вставит · Esc закроет",
+            "a digit inserts · Esc closes",
+        ),
+        "snip.pickTipMore" => (
+            "цифра · Shift+цифра · Ctrl+цифра вставят, дальше мышью · Esc закроет",
+            "digit · Shift+digit · Ctrl+digit insert, the rest by mouse · Esc closes",
+        ),
+        "snip.pickEmpty" => ("Список сниппетов пуст", "The snippet list is empty"),
+        "snip.pickDictation" => ("Диктовка", "Dictation"),
         "open.snippets" => ("Сниппеты (snippets.json)…", "Snippets (snippets.json)…"),
         "open.folder" => ("Папка данных и лог", "Data folder and log"),
         "reload" => ("Перечитать настройки", "Reload settings"),

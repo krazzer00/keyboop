@@ -162,10 +162,20 @@ pub fn release_modifiers() -> Vec<u16> {
 }
 
 pub fn ctrl_c() {
+    ctrl_key(b'C' as u16);
+}
+
+pub fn ctrl_v() {
+    ctrl_key(b'V' as u16);
+}
+
+/// Ctrl+клавиша. Помечено «тихим»: хук его не разбирает, и если человек назначит на наш хоткей
+/// сочетание с Ctrl+V, петли не будет.
+fn ctrl_key(vk: u16) {
     send(&[
         key(VK_LCONTROL, false, MARK_SILENT),
-        key(b'C' as u16, false, MARK_SILENT),
-        key(b'C' as u16, true, MARK_SILENT),
+        key(vk, false, MARK_SILENT),
+        key(vk, true, MARK_SILENT),
         key(VK_LCONTROL, true, MARK_SILENT),
     ]);
 }

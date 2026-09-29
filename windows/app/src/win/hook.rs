@@ -54,6 +54,11 @@ pub fn post_insert(text: String, then_return: bool) {
         );
     }
 }
+/// Окно потока хуков: сюда шлют сообщения и вешают таймеры.
+pub fn hook_hwnd() -> HWND {
+    HOOK_HWND.load(Ordering::Relaxed) as HWND
+}
+
 const TIMER_ENGINE: usize = 1;
 const TIMER_WATCHDOG: usize = 2;
 
@@ -452,8 +457,17 @@ fn handle_key(kb: &KBDLLHOOKSTRUCT, up: bool) -> bool {
     }
     TAP_CANDIDATE.store(0, Ordering::Relaxed);
 
-    // Хоткеи-сочетания (набор модификаторов должен совпасть точно).
     let m = mods();
+
+    // Открыт список сниппетов: цифра выбирает, Esc закрывает, остальное закрывает и идёт дальше.
+    if let Some(swallow) = super::picker::on_key(vk, m.shift, m.ctrl, m.alt || m.win) {
+        if swallow {
+            KEYS.lock().unwrap().swallowed_up.push(vk);
+            return true;
+        }
+    }
+
+    // Хоткеи-сочетания (набор модификаторов должен совпасть точно).
     if let Some(Hotkey::Key { vk: hvk, mods: hm }) = hk.voice {
         if hvk == vk && hm == m {
             KEYS.lock().unwrap().swallowed_up.push(vk);
@@ -583,6 +597,16 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             wparam as u32,
             WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN
         );
+        if ms.dwExtraInfo != MARK_SYNTH && super::picker::is_open() {
+            let wheel = (ms.mouseData >> 16) as i16;
+            let ours = std::panic::catch_unwind(|| {
+                super::picker::on_mouse(wparam as u32, ms.pt.x, ms.pt.y, wheel)
+            })
+            .unwrap_or(false);
+            if ours {
+                return 1;
+            }
+        }
         if click && ms.dwExtraInfo != MARK_SYNTH {
             TAP_CANDIDATE.store(0, Ordering::Relaxed);
             let t = app().now().max(f64::MIN_POSITIVE);
@@ -606,6 +630,7 @@ unsafe extern "system" fn foreground_proc(
         if exe.is_empty() || super::sys::is_own_window(hwnd) {
             return; // своё меню в трее не считается сменой программы
         }
+        super::picker::hide(); // человек ушёл в другую программу: список сниппетов уже не к месту
         let app = app();
         *app.last_app.lock().unwrap() = exe.clone();
         let elevated = super::sys::is_elevated_foreign(hwnd);
@@ -681,6 +706,10 @@ unsafe extern "system" fn hook_wndproc(
         WM_TIMER if wparam == TIMER_ENGINE => {
             KillTimer(hwnd, TIMER_ENGINE);
             let _ = std::panic::catch_unwind(|| with_engine(|e, p| e.run_due(p)));
+            0
+        }
+        WM_TIMER if wparam == super::picker::TIMER_PICKER => {
+            super::picker::hide();
             0
         }
         WM_TIMER if wparam == TIMER_WATCHDOG => {

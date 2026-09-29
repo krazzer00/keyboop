@@ -135,6 +135,8 @@ impl HistoryView {
         {
             self.reload(d.settings.voice_history_minutes);
         }
+        // Новые диктовки и копирования появляются без действий человека: перечитываем и так.
+        ui.ctx().request_repaint_after(Duration::from_secs(3));
         egui::Panel::top("hist-top").show(ui, |ui| {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
