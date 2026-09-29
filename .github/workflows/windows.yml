@@ -1,0 +1,32 @@
+name: Windows
+
+on:
+  push:
+    paths:
+      - "windows/**"
+      - "Sources/Keyboop/ExtraWords.swift"
+      - "Sources/Keyboop/Resources/**"
+      - ".github/workflows/windows.yml"
+  pull_request:
+    paths:
+      - "windows/**"
+      - "Sources/Keyboop/ExtraWords.swift"
+      - "Sources/Keyboop/Resources/**"
+      - ".github/workflows/windows.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: cargo test --workspace
+      - name: Build
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyboop-windows-x64
+          path: windows/target/release/keyboop.exe

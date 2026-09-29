@@ -1,0 +1,11 @@
+[package]
+name = "keyboop-core"
+description = "Платформенно-независимое ядро Keyboop: детектор раскладки, буфер набора, правила."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
