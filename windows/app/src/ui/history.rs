@@ -5,6 +5,7 @@ use super::widgets::{card, subtle};
 use super::{ipc, l, Data, CORAL};
 use crate::win::history_store;
 use eframe::egui::{self, RichText, Ui};
+use keyboop_core::audio_import;
 use keyboop_core::history::{self, HistoryEntry, HistoryKind};
 use std::time::{Duration, Instant};
 
@@ -40,6 +41,11 @@ pub struct HistoryView {
     query: String,
     filter: Filter,
     copied: Option<(f64, Instant)>,
+    /// Состояние расшифровки файла или звонка (из `import.json` главного процесса).
+    import: Option<crate::win::voice::import::Status>,
+    /// Итог, который уже показали.
+    seen_finished: Option<u64>,
+    toast: Option<(String, Instant)>,
 }
 
 impl Default for HistoryView {
@@ -49,6 +55,9 @@ impl Default for HistoryView {
             loaded_at: None,
             query: String::new(),
             filter: Filter::All,
+            import: None,
+            seen_finished: None,
+            toast: None,
             copied: None,
         }
     }
@@ -121,6 +130,28 @@ fn play(bytes: Vec<u8>) {
 }
 
 impl HistoryView {
+    /// Прочитать состояние расшифровки; закончилась новая — показать итог и перечитать ленту.
+    fn poll_import(&mut self) {
+        let path = crate::win::voice::import::status_path();
+        let st: Option<crate::win::voice::import::Status> = std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
+        if let Some(st) = &st {
+            match self.seen_finished {
+                None => self.seen_finished = Some(st.finished),
+                Some(seen) if seen != st.finished => {
+                    self.seen_finished = Some(st.finished);
+                    if let Some(m) = &st.message {
+                        self.toast = Some((m.clone(), Instant::now()));
+                    }
+                    self.loaded_at = None; // перечитать историю
+                }
+                _ => {}
+            }
+        }
+        self.import = st;
+    }
+
     fn reload(&mut self, minutes: u32) {
         let mut e = history_store::load();
         let _ = history::prune(&mut e, minutes, now());
@@ -136,14 +167,17 @@ impl HistoryView {
             self.reload(d.settings.voice_history_minutes);
         }
         // Новые диктовки и копирования появляются без действий человека: перечитываем и так.
-        ui.ctx().request_repaint_after(Duration::from_secs(3));
+        self.poll_import();
+        let busy = self.import.as_ref().is_some_and(|s| s.running);
+        ui.ctx()
+            .request_repaint_after(Duration::from_millis(if busy { 500 } else { 3000 }));
         egui::Panel::top("hist-top").show(ui, |ui| {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.query)
                         .hint_text(format!("🔍 {}", l("Поиск", "Search")))
-                        .desired_width(260.0),
+                        .desired_width(170.0),
                 );
                 for (f, label) in [
                     (Filter::All, l("Всё", "All")),
@@ -153,7 +187,72 @@ impl HistoryView {
                 ] {
                     ui.selectable_value(&mut self.filter, f, label);
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add_enabled(
+                            !busy,
+                            egui::Button::new(l("Импорт файла…", "Import a file…")),
+                        )
+                        .on_hover_text(l(
+                            "Расшифровать запись (mp3, m4a, wav, flac, ogg) в историю",
+                            "Transcribe a recording (mp3, m4a, wav, flac, ogg) into History",
+                        ))
+                        .clicked()
+                    {
+                        // Диалог модальный: в своём потоке, чтобы окно не замирало.
+                        std::thread::spawn(|| {
+                            if let Some(p) = rfd::FileDialog::new()
+                                .add_filter(
+                                    l("Аудио", "Audio"),
+                                    &["mp3", "m4a", "mp4", "aac", "wav", "flac", "ogg", "oga"],
+                                )
+                                .pick_file()
+                            {
+                                crate::ui::ipc::send(&format!("import:{}", p.display()));
+                            }
+                        });
+                    }
+                });
             });
+            if let Some(st) = self.import.as_ref().filter(|s| s.running) {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    let what = if st.kind == Some(HistoryKind::Call) {
+                        l("Расшифровываю звонок", "Transcribing the call")
+                    } else {
+                        l("Расшифровываю файл", "Transcribing the file")
+                    };
+                    let mut line = format!("{what}: {}", audio_import::clock(st.processed));
+                    if st.total > 0.0 {
+                        line += &format!(" / {}", audio_import::clock(st.total));
+                    }
+                    if let Some(rem) = audio_import::remaining(st.processed, st.total, st.elapsed) {
+                        line += &format!(
+                            " · {} {}",
+                            l("осталось ~", "about"),
+                            audio_import::clock(rem)
+                        );
+                        if !crate::l10n::is_russian() {
+                            line += " left";
+                        }
+                    }
+                    ui.label(line);
+                    if st.total > 0.0 {
+                        ui.add(
+                            egui::ProgressBar::new((st.processed / st.total) as f32)
+                                .desired_width(140.0),
+                        );
+                    }
+                    if ui.small_button(l("Отменить", "Cancel")).clicked() {
+                        crate::ui::ipc::send("import-cancel");
+                    }
+                });
+            }
+            if let Some((msg, at)) = &self.toast {
+                if at.elapsed() < Duration::from_secs(6) {
+                    subtle(ui, msg);
+                }
+            }
             ui.add_space(6.0);
         });
         egui::CentralPanel::default().show(ui, |ui| {

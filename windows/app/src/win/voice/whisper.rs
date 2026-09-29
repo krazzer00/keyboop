@@ -5,7 +5,6 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 
 pub struct Whisper {
     ctx: WhisperContext,
-    pub model: String,
 }
 
 /// Потоков на распознавание: все ядра, кроме двух (системе и интерфейсу), не больше 8.
@@ -25,14 +24,11 @@ pub struct Transcript {
 }
 
 impl Whisper {
-    pub fn load(path: &std::path::Path, model: &str) -> Result<Whisper, String> {
+    pub fn load(path: &std::path::Path) -> Result<Whisper, String> {
         let p = path.to_str().ok_or("путь к модели")?;
         let ctx = WhisperContext::new_with_params(p, WhisperContextParameters::default())
             .map_err(|e| format!("{e:?}"))?;
-        Ok(Whisper {
-            ctx,
-            model: model.to_string(),
-        })
+        Ok(Whisper { ctx })
     }
 
     /// Распознать 16 кГц моно. `language`: "auto" | "ru" | "en". `hint` — слова словаря диктовки.

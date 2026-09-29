@@ -393,6 +393,8 @@ pub fn run() {
         keyboop_core::layout_data::warm_up();
         voice::set_dictionary(pairs);
         voice::send(voice::VoiceCmd::Preload);
+        // Запись звонка, прерванная сбоем, дорасшифровывается сама.
+        voice::call::recover();
     });
     tray::run(!errors.is_empty());
 

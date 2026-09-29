@@ -7,6 +7,7 @@
 //! ссылки на них и то, что отличается на Windows.
 
 pub mod ambiguous;
+pub mod audio_import;
 pub mod buffer;
 pub mod detector;
 pub mod engine;

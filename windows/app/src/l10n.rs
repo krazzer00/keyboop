@@ -103,6 +103,50 @@ pub fn t(key: &str) -> &'static str {
         ),
         "translate.failed" => ("Не удалось перевести", "Translation failed"),
         "translate.nothing" => ("Выделите текст для перевода", "Select text to translate"),
+        "import.saved" => (
+            "Файл расшифрован и добавлен в историю",
+            "The file is transcribed and added to History",
+        ),
+        "import.cancelled" => ("Импорт отменён", "Import cancelled"),
+        "import.failed" => ("Не удалось прочитать файл", "Could not read the file"),
+        "import.busy" => ("Уже идёт расшифровка", "A transcription is already running"),
+        "call.saved" => (
+            "Запись расшифрована и добавлена в историю",
+            "The recording is transcribed and added to History",
+        ),
+        "call.empty" => (
+            "В записи не нашлось речи, ничего не сохранено",
+            "No speech in the recording, nothing saved",
+        ),
+        "call.started" => (
+            "Запись звонка началась. Остановить: Shift+щелчок по значку",
+            "Call recording started. To stop: Shift+click the icon",
+        ),
+        "call.tip" => (
+            "● Идёт запись звонка — Shift+щелчок остановит",
+            "● Recording a call — Shift+click to stop",
+        ),
+        "call.stop" => ("Остановить запись звонка", "Stop recording the call"),
+        "call.failed" => ("Запись не началась", "Recording did not start"),
+        "call.recovering" => (
+            "Восстанавливаю незавершённую запись",
+            "Recovering an unfinished recording",
+        ),
+        "call.noSystemAudioTitle" => ("Записывается только микрофон", "Only the microphone is recorded"),
+        "call.noSystemAudioBody" => (
+            "Звук собеседников (то, что играет в колонках или наушниках) записать не получилось, пишу только ваш голос.",
+            "Could not capture the other side (what plays in your speakers or headphones), recording only your voice.",
+        ),
+        "call.stalledTitle" => ("Запись прервалась", "Recording interrupted"),
+        "call.stalledBody" => (
+            "Микрофон перестал присылать звук, и три перезапуска не помогли. Записанное сохраняю.",
+            "The microphone stopped sending audio and three restarts did not help. Saving what was recorded.",
+        ),
+        "call.silenceTitle" => ("Пять минут тишины", "Five minutes of silence"),
+        "call.silenceBody" => (
+            "Звук, похоже, закончился. Нажмите на это уведомление, чтобы остановить запись. Через две минуты остановлю сам.",
+            "The sound seems to be over. Click this notification to stop recording. I will stop on my own in two minutes.",
+        ),
         "voice.processing" => ("Распознаю", "Transcribing"),
         "voice.escSaved" => (
             "Отменено — текст в истории",

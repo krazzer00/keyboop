@@ -23,6 +23,7 @@ unicode-normalization = "0.1"
 # Parakeet (ONNX): onnxruntime.dll грузится динамически из папки моделей, в exe не линкуется.
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["load-dynamic", "std"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+symphonia = { version = "0.5", features = ["aac", "mp3", "isomp4", "flac", "vorbis", "ogg", "wav", "pcm", "alac"] }
 
 [target.'cfg(windows)'.dependencies]
 whisper-rs = "0.15"

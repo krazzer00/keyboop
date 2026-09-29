@@ -6,6 +6,8 @@
 //! хуков, потому что вся наша синтетика идёт через его «забор» (см. hook.rs).
 
 pub mod audio;
+pub mod call;
+pub mod import;
 mod volume;
 mod whisper;
 
@@ -30,6 +32,8 @@ pub enum VoiceCmd {
     Toggle,
     /// Заранее загрузить модель (после старта или смены модели).
     Preload,
+    /// Расшифровать файл(ы) в историю: импорт или запись звонка.
+    Import(import::Job),
 }
 
 /// Идёт запись — хук глотает Esc и не считает правый Alt чужим сочетанием.
@@ -125,7 +129,7 @@ fn ensure_loaded(model: &Model, name: &str) -> bool {
     let loaded = if name == PARAKEET {
         crate::parakeet::Parakeet::load(whisper::threads()).map(|p| Asr::Parakeet(Box::new(p)))
     } else {
-        whisper::Whisper::load(&models::whisper_path(name), name).map(Asr::Whisper)
+        whisper::Whisper::load(&models::whisper_path(name)).map(Asr::Whisper)
     };
     match loaded {
         Ok(asr) => {
@@ -146,6 +150,48 @@ fn ensure_loaded(model: &Model, name: &str) -> bool {
     }
 }
 
+/// Распознать загруженной моделью (она уже должна быть загружена: `ensure_loaded`). Ошибка —
+/// пустая строка и запись в лог.
+fn recognize(model: &Model, name: &str, s: &keyboop_core::Settings, samples: &[f32]) -> String {
+    let t0 = Instant::now();
+    let hint = dictionary().lock().unwrap().recognition_hint(180);
+    let mut m = model.lock().unwrap();
+    match m.as_mut().map(|l| &mut l.asr) {
+        Some(Asr::Parakeet(p)) => match p.transcribe(samples, &s.voice_language) {
+            Ok(text) => {
+                app().log(&format!(
+                    "voice: parakeet → {} симв., {} мс",
+                    text.chars().count(),
+                    t0.elapsed().as_millis()
+                ));
+                text
+            }
+            Err(e) => {
+                app().log(&format!("voice: parakeet ошибка: {e}"));
+                String::new()
+            }
+        },
+        Some(Asr::Whisper(w)) => match w.transcribe(samples, &s.voice_language, hint.as_deref()) {
+            Ok(tr) => {
+                app().log(&format!(
+                    "voice: whisper {} → {} симв., язык {} p={:.2}, {} мс",
+                    name,
+                    tr.text.chars().count(),
+                    tr.language,
+                    tr.probability,
+                    t0.elapsed().as_millis()
+                ));
+                tr.text
+            }
+            Err(e) => {
+                app().log(&format!("voice: whisper ошибка: {e}"));
+                String::new()
+            }
+        },
+        None => String::new(),
+    }
+}
+
 /// Распознать и доставить результат. `history_only` — отменённая Esc диктовка.
 fn transcribe_and_deliver(
     model: Model,
@@ -156,48 +202,8 @@ fn transcribe_and_deliver(
     std::thread::spawn(move || {
         busy.store(true, Ordering::Relaxed);
         let s = settings();
-        let t0 = Instant::now();
         let text = match model_to_use(&s) {
-            Some(name) if ensure_loaded(&model, &name) => {
-                let hint = dictionary().lock().unwrap().recognition_hint(180);
-                let mut m = model.lock().unwrap();
-                match m.as_mut().map(|l| &mut l.asr) {
-                    Some(Asr::Parakeet(p)) => match p.transcribe(&samples, &s.voice_language) {
-                        Ok(text) => {
-                            app().log(&format!(
-                                "voice: parakeet → {} симв., {} мс",
-                                text.chars().count(),
-                                t0.elapsed().as_millis()
-                            ));
-                            text
-                        }
-                        Err(e) => {
-                            app().log(&format!("voice: parakeet ошибка: {e}"));
-                            String::new()
-                        }
-                    },
-                    Some(Asr::Whisper(w)) => {
-                        match w.transcribe(&samples, &s.voice_language, hint.as_deref()) {
-                            Ok(tr) => {
-                                app().log(&format!(
-                                    "voice: whisper {} → {} симв., язык {} p={:.2}, {} мс",
-                                    name,
-                                    tr.text.chars().count(),
-                                    tr.language,
-                                    tr.probability,
-                                    t0.elapsed().as_millis()
-                                ));
-                                tr.text
-                            }
-                            Err(e) => {
-                                app().log(&format!("voice: whisper ошибка: {e}"));
-                                String::new()
-                            }
-                        }
-                    }
-                    None => String::new(),
-                }
-            }
+            Some(name) if ensure_loaded(&model, &name) => recognize(&model, &name, &s, &samples),
             _ => String::new(),
         };
         busy.store(false, Ordering::Relaxed);
@@ -391,6 +397,11 @@ pub fn run() {
                             ensure_loaded(&m, &name);
                         });
                     }
+                }
+            }
+            VoiceCmd::Import(job) => {
+                if !import::start(model.clone(), job) {
+                    hud::toast(t("import.busy"));
                 }
             }
             VoiceCmd::Toggle => {}

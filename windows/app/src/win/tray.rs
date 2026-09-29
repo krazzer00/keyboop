@@ -42,6 +42,7 @@ const ID_UI_SETTINGS: usize = 145;
 const ID_UI_HISTORY: usize = 146;
 const ID_UI_FEEDBACK: usize = 147;
 const ID_VOICE: usize = 107;
+const ID_CALL_STOP: usize = 108;
 const ID_QUIT: usize = 199;
 
 const PAUSE_MINUTES: [u32; 4] = [15, 60, 180, 300];
@@ -94,6 +95,9 @@ fn badge_state() -> (String, u32, String) {
             keyboop_core::Script::Other => 0x00_88_96_0D,    // бирюзовый
         }
     };
+    if super::voice::call::is_recording() {
+        return (label, 0x00_2D_2D_D9, t("call.tip").to_string()); // красный: идёт запись
+    }
     let status = if paused {
         t("paused").to_string()
     } else if !auto {
@@ -316,6 +320,10 @@ fn show_menu() {
         );
     }
     m.sep();
+    if super::voice::call::is_recording() {
+        m.item(ID_CALL_STOP, t("call.stop"), false, true);
+        m.sep();
+    }
     let offers = app.learn_offers.lock().unwrap().clone();
     for (i, w) in offers.iter().enumerate().take(5) {
         m.item(
@@ -466,6 +474,9 @@ fn on_command(cmd: usize, offers: &[String], last_app: &str) {
             app.send(Cmd::Persist);
         }
         ID_VOICE => toggle(|s| s.voice_enabled = !s.voice_enabled),
+        ID_CALL_STOP => {
+            std::thread::spawn(super::voice::call::stop);
+        }
         ID_UI_SETTINGS => crate::ui::spawn("settings", None),
         ID_UI_HISTORY => crate::ui::spawn("history", None),
         ID_UI_FEEDBACK => crate::ui::spawn("feedback", None),
@@ -491,9 +502,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_APP_TRAY => {
             match lparam as u32 {
                 WM_RBUTTONUP | WM_CONTEXTMENU => show_menu(),
+                // Shift+щелчок — запись звонка (на Маке ⌥-щелчок), скрытая функция.
+                WM_LBUTTONUP
+                    if super::input::is_down(
+                        windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_SHIFT,
+                    ) =>
+                {
+                    super::voice::call::toggle();
+                    refresh(false);
+                }
                 WM_LBUTTONUP => tray_click(),
                 NIN_BALLOONUSERCLICK => {
-                    if let Some(w) = BALLOON_WORD.lock().unwrap().take() {
+                    if super::voice::call::ASKED_TO_STOP.swap(false, Ordering::Relaxed) {
+                        std::thread::spawn(super::voice::call::stop);
+                    } else if let Some(w) = BALLOON_WORD.lock().unwrap().take() {
                         confirm_learn(&w);
                     }
                 }
@@ -552,6 +574,17 @@ fn on_ipc(cmd: &str) {
         "preload" => super::voice::send(super::voice::VoiceCmd::Preload),
         "history" => super::history_store::reload(),
         "check-updates" => app.send(super::Cmd::CheckUpdates),
+        "import-cancel" => super::voice::import::CANCEL.store(true, Ordering::Relaxed),
+        c if c.starts_with("import:") => {
+            let path = std::path::PathBuf::from(&c["import:".len()..]);
+            let label = path.file_name().map(|n| n.to_string_lossy().into_owned());
+            super::voice::send(super::voice::VoiceCmd::Import(super::voice::import::Job {
+                sources: vec![path],
+                kind: keyboop_core::history::HistoryKind::Imported,
+                label,
+                cleanup: None,
+            }));
+        }
         _ => app.log(&format!("ipc: неизвестная команда {cmd}")),
     }
     refresh(false);
