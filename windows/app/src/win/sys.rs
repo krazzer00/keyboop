@@ -44,6 +44,37 @@ pub fn message_box(text: &str) {
     }
 }
 
+/// Версия Windows для диагностики (номер сборки из реестра).
+pub fn os_version() -> String {
+    unsafe {
+        let key = wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+        let read = |name: &str| -> String {
+            let val = wide(name);
+            let mut buf = [0u16; 256];
+            let mut size = (buf.len() * 2) as u32;
+            if RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                key.as_ptr(),
+                val.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr() as *mut _,
+                &mut size,
+            ) != ERROR_SUCCESS
+            {
+                return String::new();
+            }
+            String::from_utf16_lossy(&buf[..(size as usize / 2).saturating_sub(1)])
+        };
+        format!(
+            "{} build {} ({})",
+            read("ProductName"),
+            read("CurrentBuild"),
+            read("DisplayVersion")
+        )
+    }
+}
+
 pub fn system_is_russian() -> bool {
     let lang = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
     lang & 0x3FF == 0x19
@@ -68,6 +99,31 @@ pub fn play_switch_sound() {
                 SND_MEMORY | SND_ASYNC | SND_NODEFAULT,
             );
         }
+    }
+}
+
+/// Звуки диктовки и перевода: WAV держим в памяти (кэш по виду и громкости).
+pub fn play_cue(kind: crate::synth::Cue, volume: f64) {
+    static CUES: Mutex<Vec<(crate::synth::Cue, u64, &'static [u8])>> = Mutex::new(Vec::new());
+    let key = volume.to_bits();
+    let wav = {
+        let mut c = CUES.lock().unwrap();
+        match c.iter().find(|(k, v, _)| *k == kind && *v == key) {
+            Some((_, _, w)) => *w,
+            None => {
+                let w: &'static [u8] =
+                    Box::leak(crate::synth::cue(kind, volume).into_boxed_slice());
+                c.push((kind, key, w));
+                w
+            }
+        }
+    };
+    unsafe {
+        PlaySoundW(
+            wav.as_ptr() as *const u16,
+            std::ptr::null_mut(),
+            SND_MEMORY | SND_ASYNC | SND_NODEFAULT,
+        );
     }
 }
 
@@ -180,6 +236,13 @@ pub fn open_folder(path: &std::path::Path) {
             std::ptr::null(),
             SW_SHOWNORMAL,
         );
+    }
+}
+
+/// Открыть ссылку в браузере по умолчанию.
+pub fn open_url(url: &str) {
+    if url.starts_with("https://") {
+        open_folder(std::path::Path::new(url));
     }
 }
 

@@ -13,6 +13,40 @@ path = "src/main.rs"
 keyboop-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11.0"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }
+# Офлайн-перевод (OPUS-MT) — чистый Rust, без сторонних DLL.
+candle-core = "0.11"
+candle-nn = "0.11"
+candle-transformers = "0.11"
+unicode-normalization = "0.1"
+# Parakeet (ONNX): onnxruntime.dll грузится динамически из папки моделей, в exe не линкуется.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["load-dynamic", "std"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+symphonia = { version = "0.5", features = ["aac", "mp3", "isomp4", "flac", "vorbis", "ogg", "wav", "pcm", "alac"] }
+
+[target.'cfg(windows)'.dependencies]
+whisper-rs = "0.15"
+cpal = "0.16"
+tiny-skia = "0.11"
+ab_glyph = "0.2"
+# Окна (настройки, история, приветствие, отзыв) — egui. Рисует через Direct3D (wgpu, работает и
+# без видеодрайвера через WARP), а если не вышло — через OpenGL (glow).
+eframe = { version = "0.35", default-features = false, features = ["glow", "wgpu", "default_fonts", "accesskit"] }
+rfd = { version = "0.15", default-features = false }
+
+# COM (громкость системы и микрофона). Версия как у wgpu: gpu-allocator берёт ту же.
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_Devices_FunctionDiscovery",
+]
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.59"
@@ -22,13 +56,17 @@ features = [
     "Win32_Graphics_Gdi",
     "Win32_Media_Audio",
     "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
     "Win32_System_DataExchange",
     "Win32_System_Diagnostics_Debug",
+    "Win32_System_IO",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_System_Time",
     "Win32_System_Ole",
     "Win32_UI_Accessibility",
     "Win32_UI_HiDpi",

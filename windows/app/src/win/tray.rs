@@ -38,6 +38,11 @@ const ID_OPEN_SNIPPETS: usize = 142;
 const ID_OPEN_FOLDER: usize = 143;
 const ID_RELOAD: usize = 144;
 const ID_AUTOSTART: usize = 150;
+const ID_UI_SETTINGS: usize = 145;
+const ID_UI_HISTORY: usize = 146;
+const ID_UI_FEEDBACK: usize = 147;
+const ID_VOICE: usize = 107;
+const ID_CALL_STOP: usize = 108;
 const ID_QUIT: usize = 199;
 
 const PAUSE_MINUTES: [u32; 4] = [15, 60, 180, 300];
@@ -90,6 +95,9 @@ fn badge_state() -> (String, u32, String) {
             keyboop_core::Script::Other => 0x00_88_96_0D,    // бирюзовый
         }
     };
+    if super::voice::call::is_recording() {
+        return (label, 0x00_2D_2D_D9, t("call.tip").to_string()); // красный: идёт запись
+    }
     let status = if paused {
         t("paused").to_string()
     } else if !auto {
@@ -312,6 +320,10 @@ fn show_menu() {
         );
     }
     m.sep();
+    if super::voice::call::is_recording() {
+        m.item(ID_CALL_STOP, t("call.stop"), false, true);
+        m.sep();
+    }
     let offers = app.learn_offers.lock().unwrap().clone();
     for (i, w) in offers.iter().enumerate().take(5) {
         m.item(
@@ -327,6 +339,7 @@ fn show_menu() {
     m.item(ID_AUTO, t("auto"), s.auto_enabled, true);
     m.item(ID_LIVE, t("live"), s.live_fix_enabled, s.auto_enabled);
     m.item(ID_SOUND, t("sound"), s.sound_enabled, true);
+    m.item(ID_VOICE, t("voice"), s.voice_enabled, true);
     m.item(ID_TYPO, t("typo"), s.typo_fix, true);
     m.item(ID_TWOCAPS, t("twocaps"), s.two_caps_fix, true);
     m.item(ID_DEV, t("dev"), s.developer_mode, true);
@@ -366,11 +379,17 @@ fn show_menu() {
         m.sub(&format!("{}{}", t("app"), last_app), sub);
     }
     m.sep();
-    m.item(ID_OPEN_SETTINGS, t("open.settings"), false, true);
-    m.item(ID_OPEN_EXCEPTIONS, t("open.exceptions"), false, true);
-    m.item(ID_OPEN_SNIPPETS, t("open.snippets"), false, true);
-    m.item(ID_OPEN_FOLDER, t("open.folder"), false, true);
-    m.item(ID_RELOAD, t("reload"), false, true);
+    m.item(ID_UI_SETTINGS, t("open.ui"), false, true);
+    m.item(ID_UI_HISTORY, t("open.history"), false, true);
+    m.item(ID_UI_FEEDBACK, t("open.feedback"), false, true);
+    // Файлы — для тех, кто правит настройки руками.
+    let files = Menu::new();
+    files.item(ID_OPEN_SETTINGS, t("open.settings"), false, true);
+    files.item(ID_OPEN_EXCEPTIONS, t("open.exceptions"), false, true);
+    files.item(ID_OPEN_SNIPPETS, t("open.snippets"), false, true);
+    files.item(ID_OPEN_FOLDER, t("open.folder"), false, true);
+    files.item(ID_RELOAD, t("reload"), false, true);
+    m.sub(t("files"), files);
     m.sep();
     m.item(ID_AUTOSTART, t("autostart"), sys::autostart_enabled(), true);
     m.item(ID_QUIT, t("quit"), false, true);
@@ -454,6 +473,13 @@ fn on_command(cmd: usize, offers: &[String], last_app: &str) {
             drop(e);
             app.send(Cmd::Persist);
         }
+        ID_VOICE => toggle(|s| s.voice_enabled = !s.voice_enabled),
+        ID_CALL_STOP => {
+            std::thread::spawn(super::voice::call::stop);
+        }
+        ID_UI_SETTINGS => crate::ui::spawn("settings", None),
+        ID_UI_HISTORY => crate::ui::spawn("history", None),
+        ID_UI_FEEDBACK => crate::ui::spawn("feedback", None),
         ID_OPEN_SETTINGS => sys::open_in_notepad(&app.store.path(crate::storage::SETTINGS)),
         ID_OPEN_EXCEPTIONS => {
             app.persist();
@@ -475,9 +501,23 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
     match msg {
         WM_APP_TRAY => {
             match lparam as u32 {
-                WM_LBUTTONUP | WM_RBUTTONUP | WM_CONTEXTMENU => show_menu(),
+                WM_RBUTTONUP | WM_CONTEXTMENU => show_menu(),
+                // Shift+щелчок — запись звонка (на Маке ⌥-щелчок), скрытая функция.
+                WM_LBUTTONUP
+                    if super::input::is_down(
+                        windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_SHIFT,
+                    ) =>
+                {
+                    super::voice::call::toggle();
+                    refresh(false);
+                }
+                WM_LBUTTONUP => tray_click(),
                 NIN_BALLOONUSERCLICK => {
-                    if let Some(w) = BALLOON_WORD.lock().unwrap().take() {
+                    if super::voice::call::ASKED_TO_STOP.swap(false, Ordering::Relaxed) {
+                        std::thread::spawn(super::voice::call::stop);
+                    } else if super::update::OFFERED.swap(false, Ordering::Relaxed) {
+                        super::update::install_offer();
+                    } else if let Some(w) = BALLOON_WORD.lock().unwrap().take() {
                         confirm_learn(&w);
                     }
                 }
@@ -489,6 +529,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             refresh(false);
             0
         }
+        WM_COPYDATA => {
+            let cds = &*(lparam as *const windows_sys::Win32::System::DataExchange::COPYDATASTRUCT);
+            if cds.dwData == crate::ui::ipc::MAGIC && !cds.lpData.is_null() {
+                let bytes =
+                    std::slice::from_raw_parts(cds.lpData as *const u8, cds.cbData as usize);
+                on_ipc(&String::from_utf8_lossy(bytes));
+            }
+            1
+        }
         WM_APP_LEARN => {
             show_learn_balloon();
             0
@@ -496,6 +545,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_TIMER => {
             static TICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             refresh(false);
+            super::clipboard::watch_tick();
+            let led = app().engine.lock().unwrap().settings.caps_led_indicator;
+            let russian =
+                layouts::script_of(layouts::foreground_hkl().0) == keyboop_core::Script::Cyrillic;
+            super::caps_led::sync(led, russian);
             if TICKS.fetch_add(1, Ordering::Relaxed) % 5 == 4 {
                 app().reload_if_changed(false);
             }
@@ -513,6 +567,48 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             0
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// Команда из окна (отдельный процесс).
+fn on_ipc(cmd: &str) {
+    let app = app();
+    match cmd {
+        "reload" => app.reload_if_changed(true),
+        "hotkeys-off" => super::hook::HOTKEYS_SUSPENDED.store(true, Ordering::Relaxed),
+        "hotkeys-on" => super::hook::HOTKEYS_SUSPENDED.store(false, Ordering::Relaxed),
+        "preload" => super::voice::send(super::voice::VoiceCmd::Preload),
+        "history" => super::history_store::reload(),
+        "check-updates" => app.send(super::Cmd::CheckUpdates),
+        "import-cancel" => super::voice::import::CANCEL.store(true, Ordering::Relaxed),
+        c if c.starts_with("import:") => {
+            let path = std::path::PathBuf::from(&c["import:".len()..]);
+            let label = path.file_name().map(|n| n.to_string_lossy().into_owned());
+            super::voice::send(super::voice::VoiceCmd::Import(super::voice::import::Job {
+                sources: vec![path],
+                kind: keyboop_core::history::HistoryKind::Imported,
+                label,
+                cleanup: None,
+            }));
+        }
+        _ => app.log(&format!("ipc: неизвестная команда {cmd}")),
+    }
+    refresh(false);
+}
+
+/// Щелчок левой кнопкой по значку: действие из настроек (по умолчанию — меню).
+fn tray_click() {
+    let action = app().engine.lock().unwrap().settings.tray_click.clone();
+    match action.as_str() {
+        "settings" => crate::ui::spawn("settings", None),
+        "history" => crate::ui::spawn("history", None),
+        "dictate" => super::voice::send(super::voice::VoiceCmd::Toggle),
+        "pause" => {
+            app().engine.lock().unwrap().settings.paused_until = wall() + 15.0 * 60.0;
+            app().save_settings();
+            refresh(false);
+        }
+        _ => show_menu(),
     }
 }
 
@@ -557,6 +653,10 @@ pub fn run(config_errors: bool) {
         refresh(true);
         if config_errors {
             balloon(t("config.error"), t("config.error.body"));
+        }
+        // Первый запуск — окно-приветствие.
+        if !app().engine.lock().unwrap().settings.did_show_welcome {
+            crate::ui::spawn("welcome", None);
         }
         // Опрос раскладки активного окна: человек переключает её и сам (Alt+Shift, Win+Space).
         SetTimer(hwnd, TIMER_POLL, 400, None);

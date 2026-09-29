@@ -1,0 +1,16 @@
+[env]
+# whisper.cpp (ggml): НЕ под процессор машины сборки, иначе exe упадёт у человека с другим CPU.
+# Базовый набор — AVX2/FMA/F16C (процессоры с 2013 года).
+GGML_NATIVE = "OFF"
+GGML_AVX = "ON"
+GGML_AVX2 = "ON"
+GGML_FMA = "ON"
+GGML_F16C = "ON"
+# Привязки whisper-rs-sys генерируются bindgen'ом под целевую платформу (нужен libclang):
+# готовые из крейта сняты на Linux, и на Windows у них другой размер `long`.
+
+# Кросс-сборка под windows-gnu (mingw-w64, вариант posix — нужен std::thread).
+CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_gnu = { value = "build/mingw-toolchain.cmake", relative = true }
+CC_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-gcc-posix"
+CXX_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-g++-posix"
+AR_x86_64_pc_windows_gnu = "x86_64-w64-mingw32-ar"
