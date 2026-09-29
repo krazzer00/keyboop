@@ -743,7 +743,77 @@ impl SettingsView {
                 }
             });
         });
-        section_title(ui, l("Модель распознавания", "Speech model"));
+        section_title(ui, l("Движок распознавания", "Speech engine"));
+        card(ui, |ui| {
+            row(
+                ui,
+                l("Движок", "Engine"),
+                l(
+                    "Parakeet точнее на русском и быстрее, Whisper понимает подсказки словаря",
+                    "Parakeet is more accurate on Russian and faster; Whisper takes dictionary hints",
+                ),
+                |ui| {
+                    for (v, label) in [("parakeet", "Parakeet v3"), ("whisper", "Whisper")] {
+                        if ui
+                            .selectable_value(&mut s.voice_engine, v.to_string(), label)
+                            .changed()
+                        {
+                            ipc::send("preload");
+                        }
+                    }
+                },
+            );
+            ui.horizontal(|ui| {
+                let installed = crate::parakeet::is_installed();
+                ui.label("Parakeet TDT 0.6B v3");
+                ui.label(RichText::new(crate::parakeet::SIZE).small());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let key = "parakeet".to_string();
+                    match self.downloads.get(&key).cloned() {
+                        Some(dl) if !dl.done.load(Ordering::Relaxed) => {
+                            if ui.small_button("×").clicked() {
+                                dl.cancel.store(true, Ordering::Relaxed);
+                            }
+                            let v = f32::from_bits(dl.progress.load(Ordering::Relaxed));
+                            ui.add(
+                                egui::ProgressBar::new(v)
+                                    .desired_width(160.0)
+                                    .show_percentage(),
+                            );
+                        }
+                        other => {
+                            if let Some(err) =
+                                other.as_ref().and_then(|d| d.error.lock().unwrap().clone())
+                            {
+                                ui.colored_label(egui::Color32::from_rgb(220, 90, 40), err);
+                            }
+                            if installed {
+                                if ui.small_button(l("Удалить", "Delete")).clicked() {
+                                    crate::parakeet::delete();
+                                }
+                                ui.label("✔");
+                            } else if ui.button(l("Скачать", "Download")).clicked() {
+                                let dl = start_download(key.clone(), |cancel, progress| {
+                                    crate::parakeet::download(cancel, progress)
+                                });
+                                self.downloads.insert(key, dl);
+                                s.voice_engine = "parakeet".into();
+                            }
+                        }
+                    }
+                });
+            });
+            if s.voice_engine == "parakeet" && !crate::parakeet::is_installed() {
+                subtle(
+                    ui,
+                    l(
+                        "Пока Parakeet не скачан, распознаёт Whisper.",
+                        "Until Parakeet is downloaded, Whisper does the work.",
+                    ),
+                );
+            }
+        });
+        section_title(ui, l("Модель Whisper", "Whisper model"));
         card(ui, |ui| {
             subtle(
                 ui,

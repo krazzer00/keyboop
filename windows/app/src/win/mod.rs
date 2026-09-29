@@ -400,6 +400,14 @@ pub fn run() {
     app().send(Cmd::Quit);
     app().persist();
     app().log("Keyboop завершён");
+    // onnxruntime.dll (Parakeet) падает в своих статических деструкторах при обычном выходе
+    // процесса. Всё уже сохранено — завершаемся сразу, не разгружая библиотеки.
+    if crate::parakeet::runtime_loaded() {
+        unsafe {
+            use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+            TerminateProcess(GetCurrentProcess(), 0);
+        }
+    }
 }
 
 /// Рабочий поток: всё медленное, что нельзя делать в потоке хуков (там каждая миллисекунда
