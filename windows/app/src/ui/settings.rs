@@ -1207,7 +1207,7 @@ impl SettingsView {
         });
         section_title(ui, l("Сторонние компоненты", "Third-party components"));
         card(ui, |ui| {
-            subtle(ui, "whisper.cpp (MIT) · egui (MIT/Apache-2.0) · cpal (Apache-2.0) · keyswitcher data (MIT) · tiny-skia (BSD-3)");
+            subtle(ui, "whisper.cpp (MIT) · egui (MIT/Apache-2.0) · cpal (Apache-2.0) · keyswitcher data (MIT) · tiny-skia (BSD-3) · candle (MIT/Apache-2.0) · OPUS-MT, Helsinki-NLP (CC-BY 4.0)");
         });
         let _ = d;
     }
@@ -1252,12 +1252,58 @@ fn retention_label(m: u32) -> String {
 }
 
 /// Языковые пакеты перевода — заполняется на этапе перевода.
-pub fn translate_packs(ui: &mut Ui, _downloads: &mut HashMap<String, Arc<Download>>) {
+pub fn translate_packs(ui: &mut Ui, downloads: &mut HashMap<String, Arc<Download>>) {
     subtle(
         ui,
         l(
-            "Пакеты перевода появятся здесь.",
-            "Translation packs will appear here.",
+            "Скачиваются один раз, дальше перевод идёт без интернета. Нужен пакет того направления, в котором переводите.",
+            "Downloaded once, then translation works offline. Get the pack for the direction you translate in.",
         ),
     );
+    for p in crate::mt::packs::PACKS {
+        let title = match p.id {
+            "ru-en" => l("Русский → английский", "Russian → English"),
+            _ => l("Английский → русский", "English → Russian"),
+        };
+        ui.horizontal(|ui| {
+            let installed = crate::mt::packs::is_installed(p.id);
+            ui.label(title);
+            ui.label(RichText::new(p.size).small());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let key = format!("mt:{}", p.id);
+                match downloads.get(&key).cloned() {
+                    Some(dl) if !dl.done.load(Ordering::Relaxed) => {
+                        if ui.small_button("×").clicked() {
+                            dl.cancel.store(true, Ordering::Relaxed);
+                        }
+                        let v = f32::from_bits(dl.progress.load(Ordering::Relaxed));
+                        ui.add(
+                            egui::ProgressBar::new(v)
+                                .desired_width(160.0)
+                                .show_percentage(),
+                        );
+                    }
+                    other => {
+                        if let Some(err) =
+                            other.as_ref().and_then(|d| d.error.lock().unwrap().clone())
+                        {
+                            ui.colored_label(egui::Color32::from_rgb(220, 90, 40), err);
+                        }
+                        if installed {
+                            if ui.small_button(l("Удалить", "Delete")).clicked() {
+                                crate::mt::packs::delete(p.id);
+                            }
+                            ui.label("✔");
+                        } else if ui.button(l("Скачать", "Download")).clicked() {
+                            let id = p.id;
+                            let dl = start_download(key.clone(), move |cancel, progress| {
+                                crate::mt::packs::download(id, cancel, progress)
+                            });
+                            downloads.insert(key, dl);
+                        }
+                    }
+                }
+            });
+        });
+    }
 }

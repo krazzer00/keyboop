@@ -333,7 +333,10 @@ pub fn run() {
                 if cancel {
                     hud::set(hud::HudState::Hidden, s.voice_hud_top);
                 } else {
-                    hud::set(hud::HudState::Processing, s.voice_hud_top);
+                    hud::set(
+                        hud::HudState::Processing("voice.processing"),
+                        s.voice_hud_top,
+                    );
                 }
                 transcribe_and_deliver(model.clone(), samples, cancel, busy.clone());
             }

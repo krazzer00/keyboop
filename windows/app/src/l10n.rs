@@ -96,6 +96,13 @@ pub fn t(key: &str) -> &'static str {
             "The file was left untouched; running with defaults. See keyboop.log for details.",
         ),
         "voice.listening" => ("Слушаю", "Listening"),
+        "translate.processing" => ("Перевожу", "Translating"),
+        "translate.noPack" => (
+            "Скачайте пакет перевода в настройках",
+            "Download the translation pack in Settings",
+        ),
+        "translate.failed" => ("Не удалось перевести", "Translation failed"),
+        "translate.nothing" => ("Выделите текст для перевода", "Select text to translate"),
         "voice.processing" => ("Распознаю", "Transcribing"),
         "voice.escSaved" => (
             "Отменено — текст в истории",

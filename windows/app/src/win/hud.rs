@@ -15,7 +15,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 pub enum HudState {
     Hidden,
     Recording,
-    Processing,
+    /// «Распознаю…», «Перевожу…» — ключ строки и бегущие точки.
+    Processing(&'static str),
     Toast(String),
 }
 
@@ -82,12 +83,9 @@ fn render(h: &Hud) -> Option<Pixmap> {
     let (label, bars) = match &h.state {
         HudState::Hidden => return None,
         HudState::Recording => (t("voice.listening").to_string(), true),
-        HudState::Processing => {
+        HudState::Processing(key) => {
             let dots = ((elapsed(h).as_millis() / 350) % 4) as usize;
-            (
-                format!("{}{}", t("voice.processing"), ".".repeat(dots)),
-                false,
-            )
+            (format!("{}{}", t(key), ".".repeat(dots)), false)
         }
         HudState::Toast(msg) => (msg.clone(), false),
     };
@@ -99,9 +97,7 @@ fn render(h: &Hud) -> Option<Pixmap> {
     };
     // Ширина «Распознаю…» считается с тремя точками, чтобы плашка не дёргалась в такт точкам.
     let label_w = match h.state {
-        HudState::Processing => {
-            overlay::text_width(&format!("{}...", t("voice.processing")), text_px)
-        }
+        HudState::Processing(key) => overlay::text_width(&format!("{}...", t(key)), text_px),
         _ => overlay::text_width(&label, text_px),
     };
     let dot = 10.0 * s;
@@ -125,7 +121,7 @@ fn render(h: &Hud) -> Option<Pixmap> {
             let pulse = 0.65 + 0.35 * ((elapsed(h).as_secs_f32() * 4.0).sin() * 0.5 + 0.5);
             overlay::rgba(255, 69, 58, (255.0 * pulse) as u8)
         }
-        HudState::Processing => overlay::rgba(160, 160, 165, 255),
+        HudState::Processing(_) => overlay::rgba(160, 160, 165, 255),
         _ => overlay::rgba(255, 149, 0, 255),
     };
     overlay::fill_circle(&mut pm, x + dot / 2.0, cy, dot / 2.0, dot_color);
