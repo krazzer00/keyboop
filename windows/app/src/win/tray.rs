@@ -515,6 +515,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 NIN_BALLOONUSERCLICK => {
                     if super::voice::call::ASKED_TO_STOP.swap(false, Ordering::Relaxed) {
                         std::thread::spawn(super::voice::call::stop);
+                    } else if super::update::OFFERED.swap(false, Ordering::Relaxed) {
+                        super::update::install_offer();
                     } else if let Some(w) = BALLOON_WORD.lock().unwrap().take() {
                         confirm_learn(&w);
                     }
@@ -544,6 +546,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             static TICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             refresh(false);
             super::clipboard::watch_tick();
+            let led = app().engine.lock().unwrap().settings.caps_led_indicator;
+            let russian =
+                layouts::script_of(layouts::foreground_hkl().0) == keyboop_core::Script::Cyrillic;
+            super::caps_led::sync(led, russian);
             if TICKS.fetch_add(1, Ordering::Relaxed) % 5 == 4 {
                 app().reload_if_changed(false);
             }

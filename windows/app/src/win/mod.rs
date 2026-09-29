@@ -8,6 +8,7 @@
 //!
 //! Движок (`keyboop_core::Engine`) общий и живёт под мьютексом.
 
+mod caps_led;
 mod clipboard;
 pub(crate) mod history_store;
 mod hook;
@@ -20,6 +21,7 @@ pub(crate) mod sys;
 mod translate;
 mod tray;
 pub mod ui;
+mod update;
 pub(crate) mod voice;
 
 use crate::storage::{State, Store};
@@ -307,6 +309,7 @@ impl Platform for WinPlatform<'_> {
 }
 
 pub fn run() {
+    update::on_start(&std::env::args().collect::<Vec<_>>());
     sys::set_dpi_awareness();
     if !sys::single_instance() {
         sys::message_box(l10n::t("already"));
@@ -416,7 +419,13 @@ pub fn run() {
 /// задерживает ввод всей системы): чтение выделения через буфер обмена и запись файлов.
 fn worker(rx: Receiver<Cmd>) {
     let app = app();
+    // Обновления: первая проверка через пару минут после старта, дальше раз в сутки.
+    let mut next_update_check = Instant::now() + Duration::from_secs(120);
     loop {
+        if Instant::now() >= next_update_check {
+            next_update_check = Instant::now() + Duration::from_secs(24 * 3600);
+            update::check(false);
+        }
         match rx.recv_timeout(Duration::from_secs(10)) {
             Ok(Cmd::Quit) | Err(RecvTimeoutError::Disconnected) => break,
             Ok(Cmd::ReadSelection(kind)) => {
@@ -425,7 +434,7 @@ fn worker(rx: Receiver<Cmd>) {
                 hook::post_selection_ready();
             }
             Ok(Cmd::PlainPaste) => clipboard::plain_paste(),
-            Ok(Cmd::CheckUpdates) => app.log("обновления: проверка ещё не перенесена"),
+            Ok(Cmd::CheckUpdates) => update::check(true),
             Ok(Cmd::Persist) | Err(RecvTimeoutError::Timeout) => app.persist(),
         }
     }

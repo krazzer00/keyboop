@@ -147,6 +147,18 @@ pub fn t(key: &str) -> &'static str {
             "Звук, похоже, закончился. Нажмите на это уведомление, чтобы остановить запись. Через две минуты остановлю сам.",
             "The sound seems to be over. Click this notification to stop recording. I will stop on my own in two minutes.",
         ),
+        "update.latest" => ("У вас последняя версия Keyboop", "Keyboop is up to date"),
+        "update.available" => ("Доступна новая версия Keyboop ", "A new Keyboop version is available: "),
+        "update.click" => (
+            "Нажмите на уведомление, чтобы установить. Keyboop перезапустится.",
+            "Click this notification to install. Keyboop will restart.",
+        ),
+        "update.failed" => ("Не удалось проверить обновления", "Could not check for updates"),
+        "update.installFailed" => ("Обновление не установилось", "The update did not install"),
+        "update.manual" => (
+            "Открываю страницу релиза: скачайте новую версию вручную.",
+            "Opening the release page: download the new version manually.",
+        ),
         "voice.processing" => ("Распознаю", "Transcribing"),
         "voice.escSaved" => (
             "Отменено — текст в истории",

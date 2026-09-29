@@ -20,6 +20,8 @@ mod parakeet;
 mod storage;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod synth;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod update;
 
 #[cfg(windows)]
 mod ui;

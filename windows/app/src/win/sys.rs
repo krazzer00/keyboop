@@ -239,6 +239,13 @@ pub fn open_folder(path: &std::path::Path) {
     }
 }
 
+/// Открыть ссылку в браузере по умолчанию.
+pub fn open_url(url: &str) {
+    if url.starts_with("https://") {
+        open_folder(std::path::Path::new(url));
+    }
+}
+
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const RUN_VALUE: &str = "Keyboop";
 

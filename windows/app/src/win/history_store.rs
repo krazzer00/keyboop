@@ -186,10 +186,6 @@ pub fn last_clipboard_text() -> Option<String> {
     with_cache(|c| history::last_clipboard_text(c).map(str::to_string))
 }
 
-pub fn all() -> Vec<HistoryEntry> {
-    with_cache(|c| c.clone())
-}
-
 // ── Аудиоклипы ───────────────────────────────────────────────────────────────
 
 /// Сохранить запись диктовки (WAV 16 кГц, зашифровано). Возвращает id и огибающую.

@@ -17,7 +17,6 @@ use keyboop_core::exceptions::Exceptions;
 use keyboop_core::Settings;
 
 pub const CORAL: egui::Color32 = egui::Color32::from_rgb(0xFF, 0x7A, 0x59);
-pub const GRAPHITE: egui::Color32 = egui::Color32::from_rgb(0x1C, 0x1B, 0x1A);
 
 /// Язык интерфейса окна: русский или английский (как l10n главного процесса).
 pub fn l<'a>(ru: &'a str, en: &'a str) -> &'a str {
@@ -353,8 +352,16 @@ pub fn whats_new() -> Vec<(&'static str, Vec<&'static str>)> {
                 "Keyboop for Windows: the same layout detector and dictionaries as on the Mac",
             ),
             l(
-                "Голосовой набор на whisper.cpp — локально, без интернета",
-                "Voice typing on whisper.cpp — local, offline",
+                "Голосовой набор на Whisper или Parakeet — локально, без интернета",
+                "Voice typing on Whisper or Parakeet — local, offline",
+            ),
+            l(
+                "Перевод выделенного русский ↔ английский без интернета (Ctrl+Alt+T)",
+                "Offline Russian ↔ English translation of the selection (Ctrl+Alt+T)",
+            ),
+            l(
+                "Импорт аудиофайлов и запись звонков с расшифровкой в историю",
+                "Audio file import and call recording, transcribed into History",
             ),
             l(
                 "История диктовок и буфера обмена, зашифрованная для вашего пользователя",
@@ -363,6 +370,10 @@ pub fn whats_new() -> Vec<(&'static str, Vec<&'static str>)> {
             l(
                 "Сниппеты, выбор текста по цифре, вставка без форматирования",
                 "Snippets, pick a text by number, paste as plain text",
+            ),
+            l(
+                "Автообновление из GitHub Releases, есть бета-канал",
+                "Automatic updates from GitHub Releases, with a beta channel",
             ),
         ],
     )]

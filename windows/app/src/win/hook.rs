@@ -88,6 +88,11 @@ static HOOK_HWND: AtomicIsize = AtomicIsize::new(0);
 static KB_HOOK: AtomicIsize = AtomicIsize::new(0);
 static MOUSE_HOOK: AtomicIsize = AtomicIsize::new(0);
 static CAPS_ON: AtomicBool = AtomicBool::new(false);
+
+/// Включён ли Caps Lock (по нашему слежению за клавишей).
+pub fn caps_on() -> bool {
+    CAPS_ON.load(Ordering::Relaxed)
+}
 /// Время (GetTickCount) последнего колбэка хука — для сторожа, который переустанавливает хуки.
 static LAST_HOOK_TICK: AtomicU32 = AtomicU32::new(0);
 /// Модификатор, который может оказаться «тапом»-хоткеем (нажат один, ничего между).

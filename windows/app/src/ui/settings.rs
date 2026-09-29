@@ -463,8 +463,8 @@ impl SettingsView {
                     "Caps Lock light shows the language",
                 ),
                 l(
-                    "Горит — русский, погасла — английский",
-                    "On — Russian, off — English",
+                    "Горит — русский, погасла — английский. Лампочка перестаёт показывать сам Caps Lock. На некоторых системах Windows пускает к ней только при запуске от администратора",
+                    "On — Russian, off — English. The light stops showing Caps Lock itself. Some Windows systems only allow this when run as administrator",
                 ),
             );
         });

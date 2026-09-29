@@ -20,7 +20,6 @@ pub struct Transcript {
     /// Язык и уверенность (для лога и выбора затравки).
     pub language: String,
     pub probability: f32,
-    pub no_speech_max: f32,
 }
 
 impl Whisper {
@@ -85,10 +84,8 @@ impl Whisper {
         }
         state.full(params, samples).map_err(|e| format!("{e:?}"))?;
         let mut out = String::new();
-        let mut no_speech_max: f32 = 0.0;
         for i in 0..state.full_n_segments() {
             if let Some(seg) = state.get_segment(i) {
-                no_speech_max = no_speech_max.max(seg.no_speech_probability());
                 if let Ok(t) = seg.to_str_lossy() {
                     out.push_str(&t);
                 }
@@ -99,7 +96,6 @@ impl Whisper {
             text,
             language: decode_language,
             probability,
-            no_speech_max,
         })
     }
 }

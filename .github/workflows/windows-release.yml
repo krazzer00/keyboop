@@ -1,0 +1,58 @@
+name: Windows release
+
+# Тег win-v<версия> (например, win-v0.4.11 или win-v0.5.0-beta.1) собирает keyboop.exe и
+# публикует релиз, который находит встроенное обновление: архив keyboop-windows-x64.zip и его
+# SHA-256 рядом. Тег с дефисом — пре-релиз (бета-канал).
+
+on:
+  push:
+    tags:
+      - "win-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".Substring(5)
+          $ver = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if (-not $tag.StartsWith($ver)) { throw "Тег $tag не совпадает с версией $ver в Cargo.toml" }
+
+      - name: Test
+        run: cargo test --workspace --release
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/keyboop.exe dist/
+          Copy-Item README.md dist/README.md
+          Compress-Archive -Path dist/* -DestinationPath keyboop-windows-x64.zip -Force
+          $hash = (Get-FileHash keyboop-windows-x64.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  keyboop-windows-x64.zip" | Out-File -Encoding ascii -NoNewline keyboop-windows-x64.zip.sha256
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.Substring(5)
+          $ghArgs = @($tag, "keyboop-windows-x64.zip", "keyboop-windows-x64.zip.sha256",
+            "--title", "Keyboop для Windows $version",
+            "--notes", "Keyboop для Windows. Распакуйте keyboop.exe в любую папку и запустите; дальше обновления ставятся сами.")
+          if ($version.Contains("-")) { $ghArgs += "--prerelease" }
+          gh release create @ghArgs

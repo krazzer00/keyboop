@@ -118,6 +118,7 @@ pub fn wav_from_f32(samples: &[f32], rate: u32) -> Vec<u8> {
 }
 
 /// WAV (PCM16 моно) → float. None — не наш формат.
+#[cfg_attr(not(test), allow(dead_code))] // сквозной тест Parakeet
 pub fn f32_from_wav(bytes: &[u8]) -> Option<(Vec<f32>, u32)> {
     if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return None;
