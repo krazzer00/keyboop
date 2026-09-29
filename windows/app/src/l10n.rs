@@ -81,6 +81,25 @@ pub fn t(key: &str) -> &'static str {
             "Файл сохранён как есть, работаю на значениях по умолчанию. Подробности в keyboop.log.",
             "The file was left untouched; running with defaults. See keyboop.log for details.",
         ),
+        "voice.listening" => ("Слушаю", "Listening"),
+        "voice.processing" => ("Распознаю", "Transcribing"),
+        "voice.escSaved" => (
+            "Отменено — текст в истории",
+            "Cancelled — text saved to history",
+        ),
+        "voice.cancelled" => ("Диктовка отменена", "Dictation cancelled"),
+        "voice.noModel" => (
+            "Скачайте модель распознавания в настройках",
+            "Download a speech model in Settings",
+        ),
+        "voice.noMic" => ("Микрофон недоступен", "Microphone is unavailable"),
+        "voice.silent" => (
+            "Тишина — микрофон ничего не услышал",
+            "Silence — the microphone heard nothing",
+        ),
+        "voice" => ("Голосовой набор", "Voice typing"),
+        "open.ui" => ("Настройки…", "Settings…"),
+        "open.history" => ("История…", "History…"),
         _ => ("?", "?"),
     };
     if ru {

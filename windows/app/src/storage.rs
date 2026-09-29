@@ -18,6 +18,8 @@ pub const SETTINGS: &str = "settings.json";
 pub const EXCEPTIONS: &str = "exceptions.json";
 pub const SNIPPETS: &str = "snippets.json";
 pub const STATE: &str = "state.json";
+pub const DICTIONARY: &str = "dictionary.json";
+pub const TEXT_SNIPPETS: &str = "text_snippets.json";
 pub const LOG: &str = "keyboop.log";
 
 /// Служебное состояние, которое человек руками не правит.
@@ -29,6 +31,9 @@ pub struct State {
     pub typo_personal: BTreeMap<String, u32>,
     /// Последние раскладки, которыми человек пользовался (HKL в hex): "lat" / "cyr".
     pub last_layouts: BTreeMap<String, String>,
+    /// Сколько надиктовано (символов и слов) — счётчик в меню.
+    pub voice_chars: u64,
+    pub voice_words: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -133,6 +138,56 @@ impl Store {
     pub fn load_snippets(&self, errors: &mut Vec<String>) -> Vec<(String, String)> {
         let v: Vec<Snippet> = self.load_or_create(SNIPPETS, Vec::new, errors);
         v.into_iter().map(|s| (s.trigger, s.text)).collect()
+    }
+
+    /// Словарь диктовки. Нет файла — создаём с заготовками (как засев на Маке).
+    pub fn load_dictionary(&self) -> Vec<(String, String)> {
+        let mut errors = Vec::new();
+        let v: Vec<keyboop_core::voice::dictionary::DictPair> = self.load_or_create(
+            DICTIONARY,
+            || {
+                keyboop_core::voice::dictionary::seed_pairs()
+                    .into_iter()
+                    .map(
+                        |(heard, written)| keyboop_core::voice::dictionary::DictPair {
+                            heard,
+                            written,
+                        },
+                    )
+                    .collect()
+            },
+            &mut errors,
+        );
+        v.into_iter().map(|p| (p.heard, p.written)).collect()
+    }
+
+    pub fn save_dictionary(&self, pairs: &[(String, String)]) {
+        let v: Vec<keyboop_core::voice::dictionary::DictPair> = pairs
+            .iter()
+            .map(|(h, w)| keyboop_core::voice::dictionary::DictPair {
+                heard: h.clone(),
+                written: w.clone(),
+            })
+            .collect();
+        self.write(DICTIONARY, &v);
+    }
+
+    /// Текстовые сниппеты для вставки по цифре: [{"trigger": название, "text": текст}].
+    pub fn load_text_snippets(&self) -> Vec<(String, String)> {
+        let mut errors = Vec::new();
+        let v: Vec<Snippet> = self.load_or_create(TEXT_SNIPPETS, Vec::new, &mut errors);
+        v.into_iter().map(|s| (s.trigger, s.text)).collect()
+    }
+
+    pub fn save_snippets(&self, name: &str, pairs: &[(String, String)]) {
+        let v: Vec<Snippet> = pairs
+            .iter()
+            .map(|(t, x)| Snippet {
+                trigger: t.clone(),
+                text: x.clone(),
+            })
+            .collect();
+        self.write(name, &v);
     }
 
     pub fn load_state(&self) -> State {

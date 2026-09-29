@@ -19,6 +19,7 @@ use super::clipboard::Selection;
 use super::input::{self, MARK_REPLAY, MARK_SILENT, MARK_SYNTH};
 use super::layouts;
 use super::sys::wide;
+use super::voice::{self, VoiceCmd};
 use super::{app, Cmd, WinPlatform};
 use crate::hotkey::{self, Hotkey};
 use keyboop_core::engine::SelectionConversion;
@@ -36,6 +37,23 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 /// Результат чтения выделения от рабочего потока готов.
 pub const WM_KB_SELECTION: u32 = WM_APP + 10;
+/// Есть готовый текст для вставки (диктовка, сниппет, перевод).
+pub const WM_KB_INSERT: u32 = WM_APP + 11;
+
+static INSERT_QUEUE: Mutex<Vec<(String, bool)>> = Mutex::new(Vec::new());
+
+/// Напечатать текст там, где курсор. Из любого потока: печать идёт в потоке хуков.
+pub fn post_insert(text: String, then_return: bool) {
+    INSERT_QUEUE.lock().unwrap().push((text, then_return));
+    unsafe {
+        PostMessageW(
+            HOOK_HWND.load(Ordering::Relaxed) as HWND,
+            WM_KB_INSERT,
+            0,
+            0,
+        );
+    }
+}
 const TIMER_ENGINE: usize = 1;
 const TIMER_WATCHDOG: usize = 2;
 
@@ -43,6 +61,7 @@ const TIMER_WATCHDOG: usize = 2;
 pub enum SelectionKind {
     Convert,
     Case,
+    Translate,
 }
 
 pub static SELECTION_RESULT: Mutex<Option<(SelectionKind, Option<Selection>)>> = Mutex::new(None);
@@ -75,18 +94,28 @@ static CLICK_AT: AtomicU64 = AtomicU64::new(0);
 /// Ctrl значило бы стирать словами.
 static PENDING_ACTION: AtomicU8 = AtomicU8::new(0);
 
-const ACT_CONVERT: u8 = 1;
-const ACT_SWITCH: u8 = 2;
-const ACT_CASE: u8 = 3;
+pub const ACT_CONVERT: u8 = 1;
+pub const ACT_SWITCH: u8 = 2;
+pub const ACT_CASE: u8 = 3;
+pub const ACT_VOICE_TOGGLE: u8 = 4;
+pub const ACT_PASTE_DICTATION: u8 = 5;
+pub const ACT_PLAIN_PASTE: u8 = 6;
+pub const ACT_SNIPPET_PICK: u8 = 7;
+pub const ACT_TRANSLATE: u8 = 8;
+/// Клавиша диктовки, которую сейчас держат (0 — не держат).
+static VOICE_HOLD: AtomicU32 = AtomicU32::new(0);
 
 struct KeyState {
     down: [bool; 256],
+    /// Когда клавиша нажата (время события, мс) — чтобы отличить «вместе с хоткеем» от «до него».
+    down_at: [u32; 256],
     /// Клавиши, чьё нажатие мы проглотили: их отпускание тоже глотаем.
     swallowed_up: Vec<u32>,
 }
 
 static KEYS: Mutex<KeyState> = Mutex::new(KeyState {
     down: [false; 256],
+    down_at: [0; 256],
     swallowed_up: Vec::new(),
 });
 
@@ -221,6 +250,17 @@ fn run_action(action: u8) {
         }
         ACT_SWITCH => with_engine(|e, p| e.layout_switch_only(p)),
         ACT_CASE => app().send(Cmd::ReadSelection(SelectionKind::Case)),
+        ACT_VOICE_TOGGLE => voice::send(VoiceCmd::Toggle),
+        ACT_PASTE_DICTATION => {
+            let minutes = app().engine.lock().unwrap().settings.voice_history_minutes;
+            match super::history_store::last_dictation(minutes) {
+                Some(text) => with_engine(|e, p| e.insert_text(&text, false, p)),
+                None => super::sys::beep(),
+            }
+        }
+        ACT_PLAIN_PASTE => app().send(Cmd::PlainPaste),
+        ACT_SNIPPET_PICK => super::picker::open(),
+        ACT_TRANSLATE => app().send(Cmd::ReadSelection(SelectionKind::Translate)),
         _ => {}
     }
 }
@@ -257,6 +297,7 @@ fn apply_selection() {
             None => super::sys::beep(),
         },
         (SelectionKind::Case, None) => super::sys::beep(),
+        (SelectionKind::Translate, _) => super::translate::apply(sel.as_ref()),
     }
     if let Some(s) = sel {
         s.restore_later();
@@ -306,24 +347,50 @@ fn handle_key(kb: &KBDLLHOOKSTRUCT, up: bool) -> bool {
         let i = (vk & 0xFF) as usize;
         repeat = !up && ks.down[i];
         ks.down[i] = !up;
-        if up {
-            if let Some(i) = ks.swallowed_up.iter().position(|&x| x == vk) {
-                ks.swallowed_up.swap_remove(i);
-                drop(ks);
-                maybe_run_pending();
-                return true;
-            }
+        if !up && !repeat {
+            ks.down_at[i] = kb.time;
+        }
+    }
+    let hk = app().hotkeys.lock().unwrap().clone();
+
+    // ── Диктовка: удержание хоткея, Esc, чужое сочетание ────────────────────────────────
+    let held = VOICE_HOLD.load(Ordering::Relaxed);
+    if held != 0 {
+        if up && vk == held {
+            VOICE_HOLD.store(0, Ordering::Relaxed);
+            voice::send(VoiceCmd::End);
+        } else if !up && !repeat && vk == VK_ESCAPE as u32 && hk.esc_cancels {
+            VOICE_HOLD.store(0, Ordering::Relaxed);
+            voice::send(VoiceCmd::Cancel);
+            KEYS.lock().unwrap().swallowed_up.push(vk);
+            return true;
+        } else if !up && !repeat && vk != held {
+            // Хоткей диктовки оказался частью чужого сочетания (правый Alt + буква): не диктовка.
+            VOICE_HOLD.store(0, Ordering::Relaxed);
+            voice::send(VoiceCmd::Abort);
+        }
+    } else if !up
+        && !repeat
+        && vk == VK_ESCAPE as u32
+        && hk.esc_cancels
+        && voice::ACTIVE.load(Ordering::Relaxed)
+    {
+        voice::send(VoiceCmd::Cancel);
+        KEYS.lock().unwrap().swallowed_up.push(vk);
+        return true;
+    }
+
+    if up {
+        let mut ks = KEYS.lock().unwrap();
+        if let Some(i) = ks.swallowed_up.iter().position(|&x| x == vk) {
+            ks.swallowed_up.swap_remove(i);
+            drop(ks);
+            maybe_run_pending();
+            return true;
         }
     }
 
-    let entries: [(Option<Hotkey>, u8); 3] = {
-        let hk = app().hotkeys.lock().unwrap();
-        [
-            (hk.convert, ACT_CONVERT),
-            (hk.switch_layout, ACT_SWITCH),
-            (hk.case, ACT_CASE),
-        ]
-    };
+    let entries = hk.actions();
 
     if up {
         // Тап модификатора: отпущен тот же, что был нажат, и между ними ничего.
@@ -339,18 +406,41 @@ fn handle_key(kb: &KBDLLHOOKSTRUCT, up: bool) -> bool {
         return false;
     }
 
+    // «Нажат только этот модификатор»: другие модификаторы, нажатые почти одновременно с ним, не в
+    // счёт. Так приходят составные клавиши: AltGr присылает фальшивый левый Ctrl, а Wine правый
+    // Alt — парой с левым. Модификатор, зажатый заранее, — это уже сочетание.
+    let only_this_down = || {
+        let ks = KEYS.lock().unwrap();
+        ks.down.iter().enumerate().all(|(i, d)| {
+            !*d || i as u32 == vk
+                || (hotkey::is_modifier_vk(i as u32) && kb.time.wrapping_sub(ks.down_at[i]) < 100)
+        })
+    };
+
+    // Диктовка удержанием модификатора (по умолчанию правый Alt): начинаем сразу при нажатии.
+    if hk.voice_hold && hk.voice == Some(Hotkey::Tap { vk }) && !repeat && only_this_down() {
+        VOICE_HOLD.store(vk, Ordering::Relaxed);
+        voice::send(VoiceCmd::Begin);
+        // Отпущенный «в одиночку» Alt открыл бы меню окна: гасим нейтральной клавишей.
+        if matches!(
+            vk,
+            crate::hotkey::VK_LMENU
+                | crate::hotkey::VK_RMENU
+                | crate::hotkey::VK_LWIN
+                | crate::hotkey::VK_RWIN
+        ) {
+            send_mask();
+        }
+        return false;
+    }
+
     if hotkey::is_modifier_vk(vk) {
         if !repeat {
             let tap = entries.iter().any(|(h, _)| *h == Some(Hotkey::Tap { vk }));
-            let others = KEYS
-                .lock()
-                .unwrap()
-                .down
-                .iter()
-                .enumerate()
-                .filter(|(i, d)| **d && *i as u32 != vk)
-                .count();
-            TAP_CANDIDATE.store(if tap && others == 0 { vk } else { 0 }, Ordering::Relaxed);
+            TAP_CANDIDATE.store(
+                if tap && only_this_down() { vk } else { 0 },
+                Ordering::Relaxed,
+            );
         }
         return false;
     }
@@ -358,6 +448,23 @@ fn handle_key(kb: &KBDLLHOOKSTRUCT, up: bool) -> bool {
 
     // Хоткеи-сочетания (набор модификаторов должен совпасть точно).
     let m = mods();
+    if let Some(Hotkey::Key { vk: hvk, mods: hm }) = hk.voice {
+        if hvk == vk && hm == m {
+            KEYS.lock().unwrap().swallowed_up.push(vk);
+            if m.alt || m.win {
+                send_mask();
+            }
+            if !repeat {
+                if hk.voice_hold {
+                    VOICE_HOLD.store(vk, Ordering::Relaxed);
+                    voice::send(VoiceCmd::Begin);
+                } else {
+                    voice::send(VoiceCmd::Toggle);
+                }
+            }
+            return true;
+        }
+    }
     for (h, action) in entries {
         if let Some(Hotkey::Key { vk: hvk, mods: hm }) = h {
             if hvk == vk && hm == m {
@@ -365,10 +472,7 @@ fn handle_key(kb: &KBDLLHOOKSTRUCT, up: bool) -> bool {
                 // Alt или Win, отпущенные «в одиночку» (саму клавишу мы проглотили), открыли бы
                 // меню окна или «Пуск». Гасим это нейтральной клавишей, как делает AutoHotkey.
                 if m.alt || m.win {
-                    input::send(&[
-                        input::key(input::VK_MASK, false, MARK_SILENT),
-                        input::key(input::VK_MASK, true, MARK_SILENT),
-                    ]);
+                    send_mask();
                 }
                 if !repeat {
                     fire(action);
@@ -398,6 +502,13 @@ fn handle_key(kb: &KBDLLHOOKSTRUCT, up: bool) -> bool {
         KEYS.lock().unwrap().swallowed_up.push(vk);
     }
     swallow
+}
+
+fn send_mask() {
+    input::send(&[
+        input::key(input::VK_MASK, false, MARK_SILENT),
+        input::key(input::VK_MASK, true, MARK_SILENT),
+    ]);
 }
 
 fn maybe_run_pending() {
@@ -572,6 +683,13 @@ unsafe extern "system" fn hook_wndproc(
         }
         WM_KB_SELECTION => {
             let _ = std::panic::catch_unwind(apply_selection);
+            0
+        }
+        WM_KB_INSERT => {
+            let items = std::mem::take(&mut *INSERT_QUEUE.lock().unwrap());
+            for (text, enter) in items {
+                with_engine(|e, p| e.insert_text(&text, enter, p));
+            }
             0
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),

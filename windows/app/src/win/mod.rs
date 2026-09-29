@@ -9,11 +9,18 @@
 //! Движок (`keyboop_core::Engine`) общий и живёт под мьютексом.
 
 mod clipboard;
+mod history_store;
 mod hook;
+mod hud;
 mod input;
 mod layouts;
+mod overlay;
+mod picker;
 mod sys;
+mod translate;
 mod tray;
+pub mod ui;
+mod voice;
 
 use crate::storage::{State, Store};
 use crate::{hotkey, l10n, storage};
@@ -32,15 +39,46 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub enum Cmd {
     /// Прочитать выделенный текст (буфер обмена) и вернуть его потоку хуков.
     ReadSelection(hook::SelectionKind),
+    /// Вставка без форматирования.
+    PlainPaste,
     /// Сохранить всё, что поменялось.
     Persist,
     Quit,
 }
 
+#[derive(Clone, Default)]
 pub struct Hotkeys {
     pub convert: Option<hotkey::Hotkey>,
     pub switch_layout: Option<hotkey::Hotkey>,
     pub case: Option<hotkey::Hotkey>,
+    pub voice: Option<hotkey::Hotkey>,
+    /// Диктовка удержанием (иначе — нажал/нажал).
+    pub voice_hold: bool,
+    pub esc_cancels: bool,
+    pub paste_dictation: Option<hotkey::Hotkey>,
+    pub plain_paste: Option<hotkey::Hotkey>,
+    pub snippet_pick: Option<hotkey::Hotkey>,
+    pub translate: Option<hotkey::Hotkey>,
+}
+
+impl Hotkeys {
+    /// Хоткеи-действия (кроме удержания диктовки) для сопоставления в хуке.
+    pub fn actions(&self) -> Vec<(Option<hotkey::Hotkey>, u8)> {
+        let mut v = vec![
+            (self.convert, hook::ACT_CONVERT),
+            (self.switch_layout, hook::ACT_SWITCH),
+            (self.case, hook::ACT_CASE),
+            (self.paste_dictation, hook::ACT_PASTE_DICTATION),
+            (self.plain_paste, hook::ACT_PLAIN_PASTE),
+            (self.snippet_pick, hook::ACT_SNIPPET_PICK),
+            (self.translate, hook::ACT_TRANSLATE),
+        ];
+        // Тап модификатора в режиме «нажал/нажал» — обычное действие; сочетание обрабатывает хук.
+        if !self.voice_hold && matches!(self.voice, Some(hotkey::Hotkey::Tap { .. })) {
+            v.push((self.voice, hook::ACT_VOICE_TOGGLE));
+        }
+        v
+    }
 }
 
 pub struct App {
@@ -55,9 +93,10 @@ pub struct App {
     pub last_app: Mutex<String>,
     /// Слова, которые предлагаем выучить (баннер + пункт меню).
     pub learn_offers: Mutex<Vec<String>>,
-    pub saved_mtimes: Mutex<[Option<SystemTime>; 3]>,
+    pub saved_mtimes: Mutex<[Option<SystemTime>; 4]>,
     start: Instant,
     last_rescued_saved: AtomicU64,
+    last_voice_saved: AtomicU64,
 }
 
 static APP: OnceLock<App> = OnceLock::new();
@@ -103,6 +142,25 @@ impl App {
             convert: parse(&s.hotkey_convert),
             switch_layout: parse(&s.hotkey_switch_layout),
             case: parse(&s.hotkey_case),
+            voice: if s.voice_enabled {
+                parse(&s.hotkey_voice)
+            } else {
+                None
+            },
+            voice_hold: s.voice_hold_mode != "toggle",
+            esc_cancels: s.esc_cancels_dictation,
+            paste_dictation: parse(&s.hotkey_paste_dictation),
+            plain_paste: if s.plain_paste {
+                parse(&s.hotkey_plain_paste)
+            } else {
+                None
+            },
+            snippet_pick: parse(&s.hotkey_snippet_pick),
+            translate: if s.translate_enabled {
+                parse(&s.hotkey_translate)
+            } else {
+                None
+            },
         };
     }
 
@@ -113,20 +171,21 @@ impl App {
     }
 
     pub fn remember_mtimes(&self) {
-        *self.saved_mtimes.lock().unwrap() = [
+        *self.saved_mtimes.lock().unwrap() = self.mtimes();
+    }
+
+    fn mtimes(&self) -> [Option<SystemTime>; 4] {
+        [
             self.store.mtime(storage::SETTINGS),
             self.store.mtime(storage::EXCEPTIONS),
             self.store.mtime(storage::SNIPPETS),
-        ];
+            self.store.mtime(storage::DICTIONARY),
+        ]
     }
 
     /// Файлы поменяли снаружи (Блокнот) — перечитать. Зовётся таймером интерфейса.
     pub fn reload_if_changed(&self, force: bool) {
-        let now = [
-            self.store.mtime(storage::SETTINGS),
-            self.store.mtime(storage::EXCEPTIONS),
-            self.store.mtime(storage::SNIPPETS),
-        ];
+        let now = self.mtimes();
         let changed = force || *self.saved_mtimes.lock().unwrap() != now;
         if !changed {
             return;
@@ -145,6 +204,8 @@ impl App {
         }
         l10n::set_language(&settings.language, sys::system_is_russian());
         self.apply_settings(&settings);
+        voice::set_dictionary(self.store.load_dictionary());
+        history_store::reload();
         {
             let mut e = self.engine.lock().unwrap();
             e.settings = settings;
@@ -166,9 +227,11 @@ impl App {
             let mut e = self.engine.lock().unwrap();
             let exc = e.exceptions_dirty.then(|| e.exceptions.clone());
             e.exceptions_dirty = false;
+            let voice_chars = voice::VOICE_CHARS.load(Ordering::Relaxed);
             let dirty = e.undo.dirty
                 || e.typo.dirty
-                || e.rescued_count != self.last_rescued_saved.load(Ordering::Relaxed);
+                || e.rescued_count != self.last_rescued_saved.load(Ordering::Relaxed)
+                || voice_chars != self.last_voice_saved.load(Ordering::Relaxed);
             let state = dirty.then(|| {
                 e.undo.dirty = false;
                 e.typo.dirty = false;
@@ -176,11 +239,14 @@ impl App {
                 let mut last_layouts = std::collections::BTreeMap::new();
                 last_layouts.insert("lat".to_string(), layouts::hkl_hex(l.last_lat));
                 last_layouts.insert("cyr".to_string(), layouts::hkl_hex(l.last_cyr));
+                self.last_voice_saved.store(voice_chars, Ordering::Relaxed);
                 State {
                     rescued_count: e.rescued_count,
                     undo: e.undo.state.clone(),
                     typo_personal: e.typo.personal.clone(),
                     last_layouts,
+                    voice_chars,
+                    voice_words: voice::VOICE_WORDS.load(Ordering::Relaxed),
                 }
             });
             (exc, state)
@@ -293,21 +359,20 @@ pub fn run() {
     let state_app = App {
         engine: Mutex::new(engine),
         layouts: Mutex::new(layouts),
-        hotkeys: Mutex::new(Hotkeys {
-            convert: None,
-            switch_layout: None,
-            case: None,
-        }),
+        hotkeys: Mutex::new(Hotkeys::default()),
         store,
         log,
         tx: Mutex::new(tx),
         ui_hwnd: AtomicIsize::new(0),
         last_app: Mutex::new(String::new()),
         learn_offers: Mutex::new(Vec::new()),
-        saved_mtimes: Mutex::new([None, None, None]),
+        saved_mtimes: Mutex::new([None, None, None, None]),
         start: Instant::now(),
         last_rescued_saved: AtomicU64::new(state.rescued_count),
+        last_voice_saved: AtomicU64::new(state.voice_chars),
     };
+    voice::VOICE_CHARS.store(state.voice_chars, Ordering::Relaxed);
+    voice::VOICE_WORDS.store(state.voice_words, Ordering::Relaxed);
     let settings = state_app.engine.lock().unwrap().settings.clone();
     state_app.apply_settings(&settings);
     state_app.remember_mtimes();
@@ -317,6 +382,16 @@ pub fn run() {
 
     std::thread::spawn(move || worker(rx));
     std::thread::spawn(hook::run);
+    std::thread::spawn(hud::run);
+    std::thread::spawn(voice::run);
+    std::thread::spawn(|| {
+        // Словарь диктовки: нечёткий поиск включается, когда готовы языковые словари.
+        let pairs = app().store.load_dictionary();
+        voice::set_dictionary(pairs.clone());
+        keyboop_core::layout_data::warm_up();
+        voice::set_dictionary(pairs);
+        voice::send(voice::VoiceCmd::Preload);
+    });
     tray::run(!errors.is_empty());
 
     // Интерфейс закрылся — выходим, но сперва сохраняемся.
@@ -337,6 +412,7 @@ fn worker(rx: Receiver<Cmd>) {
                 *hook::SELECTION_RESULT.lock().unwrap() = Some((kind, sel));
                 hook::post_selection_ready();
             }
+            Ok(Cmd::PlainPaste) => clipboard::plain_paste(),
             Ok(Cmd::Persist) | Err(RecvTimeoutError::Timeout) => app.persist(),
         }
     }

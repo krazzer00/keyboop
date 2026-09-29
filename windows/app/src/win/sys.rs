@@ -71,6 +71,31 @@ pub fn play_switch_sound() {
     }
 }
 
+/// Звуки диктовки и перевода: WAV держим в памяти (кэш по виду и громкости).
+pub fn play_cue(kind: crate::synth::Cue, volume: f64) {
+    static CUES: Mutex<Vec<(crate::synth::Cue, u64, &'static [u8])>> = Mutex::new(Vec::new());
+    let key = volume.to_bits();
+    let wav = {
+        let mut c = CUES.lock().unwrap();
+        match c.iter().find(|(k, v, _)| *k == kind && *v == key) {
+            Some((_, _, w)) => *w,
+            None => {
+                let w: &'static [u8] =
+                    Box::leak(crate::synth::cue(kind, volume).into_boxed_slice());
+                c.push((kind, key, w));
+                w
+            }
+        }
+    };
+    unsafe {
+        PlaySoundW(
+            wav.as_ptr() as *const u16,
+            std::ptr::null_mut(),
+            SND_MEMORY | SND_ASYNC | SND_NODEFAULT,
+        );
+    }
+}
+
 pub fn beep() {
     unsafe {
         MessageBeep(MB_OK);

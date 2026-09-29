@@ -9,6 +9,8 @@ mod hotkey;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod l10n;
 #[cfg_attr(not(windows), allow(dead_code))]
+mod models;
+#[cfg_attr(not(windows), allow(dead_code))]
 mod storage;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod synth;

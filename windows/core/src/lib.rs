@@ -11,6 +11,7 @@ pub mod detector;
 pub mod engine;
 pub mod exceptions;
 pub mod extra_words;
+pub mod history;
 pub mod keymap;
 pub mod layout_data;
 pub mod resonance;
@@ -19,6 +20,7 @@ pub mod snippets;
 pub mod text;
 pub mod typo;
 pub mod undo;
+pub mod voice;
 
 pub use engine::{Engine, Key, KeyInput, ManualStep, Platform, Script};
 pub use settings::Settings;

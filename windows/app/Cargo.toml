@@ -13,6 +13,27 @@ path = "src/main.rs"
 keyboop-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11.0"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }
+
+[target.'cfg(windows)'.dependencies]
+whisper-rs = "0.15"
+cpal = "0.16"
+tiny-skia = "0.11"
+ab_glyph = "0.2"
+
+# COM (громкость системы и микрофона) — той же версии, что тянет cpal.
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.54"
+features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_Devices_FunctionDiscovery",
+]
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.59"
@@ -22,6 +43,7 @@ features = [
     "Win32_Graphics_Gdi",
     "Win32_Media_Audio",
     "Win32_Security",
+    "Win32_Security_Cryptography",
     "Win32_System_DataExchange",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_LibraryLoader",

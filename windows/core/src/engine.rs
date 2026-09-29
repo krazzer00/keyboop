@@ -575,6 +575,16 @@ impl Engine {
         (out != text).then_some(out)
     }
 
+    /// Вставить готовый текст (диктовка, сниппет по цифре, повтор последней диктовки).
+    /// Экран изменился не нашим набором — модель набранного больше не верна, начинаем заново.
+    pub fn insert_text(&mut self, text: &str, then_return: bool, p: &mut dyn Platform) {
+        self.live_fix_last.clear();
+        self.word_edited = false;
+        self.buffer.clear();
+        self.undo.reset_context();
+        self.emit(p, 0, text, then_return);
+    }
+
     /// Хоткей «только сменить раскладку»: набранное не трогаем, слово обрываем.
     pub fn layout_switch_only(&mut self, p: &mut dyn Platform) {
         if !p.cycle_layout() {
@@ -1364,7 +1374,11 @@ mod tests {
         let mut r = Rig::new(false);
         r.e.sync_boundary = true;
         r.type_keys("ghbdtn");
-        let k = KeyInput { key: Key::Enter, shift: true, other_mods: false };
+        let k = KeyInput {
+            key: Key::Enter,
+            shift: true,
+            other_mods: false,
+        };
         assert!(!r.e.key_down(k, &mut r.f));
         r.f.screen.push('\n');
         r.settle();
